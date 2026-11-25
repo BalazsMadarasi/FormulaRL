@@ -463,6 +463,60 @@ under the same order and seam checks. Choose regularization using only
 the reconstruction split, and evaluate the frozen fit on NOR, PIA, and
 RUS. Inspect seam and largest-gap behavior separately from aggregate error.
 
+## Periodic spline baselines (Task 5A)
+
+After Task 4, install the current project dependencies and run this command
+against the prepared reconstruction split. Outputs go to
+`outputs/reconstruction/baselines/`.
+
+```powershell
+.\.venv\Scripts\python.exe .\scripts\reconstruct_baselines.py
+```
+
+The VER baseline interpolates the native XYZ samples at their closed
+reference parameters, with a repeated origin at the period endpoint.
+The averaging baselines use a common cyclic grid at approximately
+5, 10, or 20 reference metres. Within each driver, near-duplicate parameters
+within 1e-8 m are combined by averaging XYZ. Each driver's adjacent cyclic
+neighbors supply a linear interpolant up to a 60 m bracket, with exact
+knots eligible even next to a longer bracket. A grid point takes the mean
+of its available donors with equal weight. A grid with unsupported points
+fails explicitly. The report counts donors per grid. Both methods then
+interpolate with SciPy's periodic cubic spline. This enforces position,
+first-derivative, and second-derivative continuity at the seam. The
+artificial closing chord and sparse brackets still limit geometric
+accuracy. [SciPy CubicSpline documentation](https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.CubicSpline.html)
+
+The independent variable `q` is in Task 4 reference metres. Fitted spatial
+distance integrates `||dXYZ/dq||` on every knot span using Gauss–Legendre
+quadrature, doubling order until the sum of absolute span length changes
+is at most 1e-6 m. The export inverts this map span by span to sample the
+fitted arc at approximately 1 m, with the duplicate endpoint omitted.
+The tables retain XYZ, reference parameters, fitted arc, first and second
+derivatives with respect to `q`, grade, inclination, and signed curvatures.
+Grade uses vertical change per horizontal metre. Vertical curvature is
+the change in inclination in radians per fitted 3D metre. Stationary XYZ
+tangents make inclination undefined. Tiny horizontal tangents make grade
+and both curvatures undefined, using a threshold of 1e-8 m per reference m.
+
+In-sample residuals minimize continuous XY distance inside a ±50 reference-m
+corridor around each Task 4 match, including across the seam. The search
+checks polynomial stationary points and span bounds. Vertical residuals
+are observed Z minus spline Z at that XY match. Knot-box overshoot uses
+exact coordinate extrema and indicates interpolation excursions, which can
+also occur in legitimate turns. The report includes separate diagnostics
+for the seam, the largest Task 4 gap, and the previously flagged region
+near 2,182 m.
+
+The fitted lengths ranged from **6,952.317 to 6,958.439 m**. Their shortfall
+from 7,004 m was **45.56–51.68 m**. The VER spline had the largest sampled
+vertical curvature (**0.05462 m⁻¹** absolute), and the 5 m average reached
+**0.00951 m⁻¹** horizontal curvature in the largest gap, compared with
+**0.00126 m⁻¹** for VER there. These are interpolation diagnostics.
+The held-out laps are excluded from Task 5A. Future cross-validation
+must rebuild correspondence and weights independently within each fitting
+fold before scoring held-out observations.
+
 ## Plots
 
 | File in `outputs/` | What it shows |
