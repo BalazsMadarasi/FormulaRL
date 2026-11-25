@@ -5,16 +5,16 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "formula-rl"
 version = "0.1.0"
-description = "Raw Formula 1 position telemetry diagnostics"
+description = "Formula 1 position telemetry and geometry diagnostics"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = ["fastf1>=3.9,<4", "numpy", "pandas", "matplotlib"]
 
 [project.optional-dependencies]
-dev = ["ruff"]
+dev = ["pytest", "ruff"]
 
 [tool.setuptools]
-packages = []
+packages = ["formularl"]
 
 [tool.ruff.lint]
 extend-select = ["I"]
