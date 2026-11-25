@@ -14,6 +14,8 @@ AMBIGUITY_DISTANCE_M = 1.0
 AMBIGUITY_SEPARATION_M = 30.0
 BACKWARD_TOLERANCE_M = 10.0
 PROGRESS_STEP_TOLERANCE_M = 30.0
+SHORT_CHORD_M = 2.0
+GAP_THRESHOLDS_M = (40.0, 60.0)
 
 
 @dataclass(frozen=True)
@@ -60,6 +62,80 @@ def closure_distances(xyz: FloatArray) -> tuple[float, float, float]:
     delta[~np.isfinite(delta)] = np.nan
     horizontal = float(np.linalg.norm(delta[:2]))
     return horizontal, float(delta[2]), float(np.linalg.norm(delta))
+
+
+def inclination_and_gradient(
+    run_m: FloatArray, rise_m: FloatArray
+) -> tuple[FloatArray, FloatArray]:
+    """Return inclination in degrees and gradient in percent for run and rise."""
+    finite = np.isfinite(run_m) & np.isfinite(rise_m)
+    angle_defined = finite & ((run_m > 0) | ((run_m == 0) & (rise_m != 0)))
+    angle = np.where(angle_defined, np.degrees(np.arctan2(rise_m, run_m)), np.nan)
+    grade = np.divide(
+        100 * rise_m,
+        run_m,
+        out=np.full(run_m.shape, np.nan),
+        where=finite & (run_m > 0),
+    )
+    return angle, grade
+
+
+def interpolate_arc(
+    cumulative_m: FloatArray, values: FloatArray, at_m: FloatArray
+) -> FloatArray:
+    """Interpolate on the known polyline prefix without extending the endpoints."""
+    known = np.isfinite(cumulative_m)
+    if not known.any():
+        return np.full(at_m.shape, np.nan)
+    # Identical arc knots are zero-length chords with identical geometry.
+    knots, first = np.unique(cumulative_m[known], return_index=True)
+    return np.interp(at_m, knots, values[known][first], left=np.nan, right=np.nan)
+
+
+def window_gradient(
+    arc: ArcLengths, z_m: FloatArray, centers_m: FloatArray, width_m: float
+) -> FloatArray:
+    """Evaluate rise per horizontal path length in centered 3D arc windows."""
+    start, end = centers_m - width_m / 2, centers_m + width_m / 2
+    spatial = arc.cumulative_3d
+    rise = interpolate_arc(spatial, z_m, end) - interpolate_arc(spatial, z_m, start)
+    horizontal = arc.cumulative_horizontal
+    run = interpolate_arc(spatial, horizontal, end) - interpolate_arc(
+        spatial, horizontal, start
+    )
+    return inclination_and_gradient(run, rise)[1]
+
+
+def horizontal_curvature(xy: FloatArray) -> FloatArray:
+    """Signed circumcircle curvature at interior vertices, positive for left turns."""
+    chords = np.diff(np.asarray(xy, dtype=float), axis=0)
+    before, after = chords[:-1], chords[1:]
+    length = np.linalg.norm(chords, axis=1)
+    denominator = length[:-1] * length[1:] * np.linalg.norm(before + after, axis=1)
+    cross = before[:, 0] * after[:, 1] - before[:, 1] * after[:, 0]
+    return np.divide(
+        2 * cross,
+        denominator,
+        out=np.full(denominator.shape, np.nan),
+        where=np.isfinite(denominator) & (denominator > 0),
+    )
+
+
+def vertical_curvature(
+    inclination_deg: FloatArray, segments_3d_m: FloatArray
+) -> FloatArray:
+    """Inclination change in radians per metre between adjacent segment midpoints."""
+    before, after = segments_3d_m[:-1], segments_3d_m[1:]
+    delta = np.diff(np.radians(inclination_deg))
+    return np.divide(
+        delta,
+        (before + after) / 2,
+        out=np.full(delta.shape, np.nan),
+        where=np.isfinite(delta)
+        & np.isfinite(before + after)
+        & (before > 0)
+        & (after > 0),
+    )
 
 
 def project_onto_segments(

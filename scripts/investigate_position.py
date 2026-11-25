@@ -4,17 +4,15 @@ import sys
 from argparse import ArgumentParser
 from pathlib import Path
 
-import fastf1
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from fastf1.core import Lap, Laps
-from fastf1.exceptions import DataNotLoadedError, F1AuthError, NoLapDataError
 from matplotlib.collections import LineCollection
 from matplotlib.ticker import LinearLocator, StrMethodFormatter
 
 from formularl.geometry import (
+    GAP_THRESHOLDS_M,
     Alignment,
     ArcLengths,
     FloatArray,
@@ -22,58 +20,19 @@ from formularl.geometry import (
     arc_lengths,
     closure_distances,
 )
+from formularl.telemetry import (
+    COORDINATES,
+    DRIVERS,
+    EVENT,
+    SPA_LENGTH_M,
+    SPEED_FLAG_KMH,
+    load_laps,
+    read_position,
+    select_fastest_valid_lap,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
-EVENT = "2024 Belgian Grand Prix qualifying"
-DRIVERS = ("VER", "LEC", "HAM")
-COORDINATES = ["X", "Y", "Z"]
 COLORS = {"VER": "tab:blue", "LEC": "tab:red", "HAM": "tab:green"}
-SPA_LENGTH_M = 7_004.0
-GAP_THRESHOLDS_M = (40.0, 60.0)
-SPEED_FLAG_KMH = 400.0
-
-
-def select_fastest_valid_lap(laps: Laps, driver: str) -> Lap | None:
-    """Choose the shortest recorded lap time that passes the validity filters."""
-    valid = laps[
-        laps["Driver"].eq(driver)
-        & laps["Deleted"].eq(False)
-        & laps["IsAccurate"].eq(True)
-        & laps["PitInTime"].isna()
-        & laps["PitOutTime"].isna()
-        & laps["LapTime"].notna()
-    ]
-    if valid.empty:
-        return None
-    return valid.sort_values("LapTime", kind="stable").iloc[0]
-
-
-def read_position(lap: Lap) -> pd.DataFrame | None:
-    """Keep FastF1's original samples and build a separate metric table."""
-    driver = lap["Driver"]
-    try:
-        raw = lap.get_pos_data(pad=0, interpolate_edges=False)
-    except (DataNotLoadedError, KeyError) as error:
-        print(f"{driver}: position telemetry unavailable ({error}).", file=sys.stderr)
-        return None
-    if raw.empty:
-        print(f"{driver}: position telemetry is empty (0 samples).", file=sys.stderr)
-        return None
-
-    missing_columns = {*COORDINATES, "SessionTime"}.difference(raw.columns)
-    if missing_columns:
-        names = ", ".join(sorted(missing_columns))
-        print(
-            f"{driver}: position telemetry is missing columns {names}.", file=sys.stderr
-        )
-        return None
-
-    timestamps = raw["SessionTime"]
-    position = pd.DataFrame(raw[COORDINATES], dtype=float) / 10.0
-    position["SessionTime"] = timestamps
-    position["ElapsedSeconds"] = (timestamps - lap["LapStartTime"]).dt.total_seconds()
-    position["IntervalMillis"] = timestamps.diff().dt.total_seconds() * 1_000
-    return position
 
 
 def format_quantiles(values: pd.Series, quantiles: tuple[float, ...], unit: str) -> str:
@@ -434,34 +393,8 @@ def save_geometry_plots(
 
 
 def main(*, offline: bool = False) -> int:
-    cache_dir = ROOT / "cache"
-    cache_dir.mkdir(exist_ok=True)
-    fastf1.Cache.configure(cache_dir=str(cache_dir))
-    if offline:
-        fastf1.Cache.offline_mode(enabled=True)
-
-    try:
-        session = fastf1.get_session(2024, "Belgian Grand Prix", "Q")
-        session.load(laps=True, telemetry=True, weather=False, messages=True)
-        laps = session.laps
-    except (
-        DataNotLoadedError,
-        F1AuthError,
-        NoLapDataError,
-        OSError,
-        RuntimeError,
-        ValueError,
-    ) as error:
-        print(f"Could not load lap timing for {EVENT}: {error}", file=sys.stderr)
-        return 1
-    if laps.empty:
-        print(f"No lap timing available for {EVENT}.", file=sys.stderr)
-        return 1
-    if "Deleted" not in laps.columns:
-        print(
-            "Lap deletion status is unavailable; race control messages are required.",
-            file=sys.stderr,
-        )
+    laps = load_laps(ROOT / "cache", offline=offline)
+    if laps is None:
         return 1
 
     positions: dict[str, pd.DataFrame] = {}
