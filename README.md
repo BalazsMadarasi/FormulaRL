@@ -354,6 +354,115 @@ polyline exceeded its car integral by **33.13 m** over the matched time
 span. Absolute geometry and the cause of the remaining synchronization
 differences are unresolved.
 
+## Periodic correspondence (Task 4)
+
+Run this from the repository root after preparing the dataset. This command
+works offline from the prepared files and uses no telemetry download.
+
+```powershell
+.\.venv\Scripts\python.exe .\scripts\prepare_reconstruction.py
+```
+
+The loader checks prepared schema v2, split and lap identities, native sample
+order, required columns, and the SHA-256 digests of the three reconstruction
+position CSVs. NOR, PIA, and RUS remain held out. The pipeline reads their
+assignments from the manifest and uses only VER, LEC, and HAM position files.
+It writes `observations.csv`, `reference_polyline.csv`, `manifest.json`,
+`report.txt`, and six diagnostic PNGs to `outputs/reconstruction/`.
+`observations.csv` keeps the native rows and all input columns, including
+the Task 3C quality flags. The new correspondence fields sit alongside
+the earlier open-VER projection. The earlier investigation scripts still
+use their open reference, which excludes seam endpoints and cannot project
+onto the missing last-to-first span.
+
+### Closed arc and ordered projection
+
+The provisional origin is VER's first observed position, which is 65 ms
+after the recorded lap start. Append that vertex to close the native
+polyline. The forward closing chord is **15.091 m** in 3D and **15.088 m**
+in XY, with a **+0.300 m** rise. It spans an unobserved boundary and can
+miss the actual path and grade there. The resulting 3D period is
+**6,955.323 m**, using the source coordinate scale.
+
+For each observation and every eligible reference chord, take the clamped
+XY orthogonal projection, then use the same fraction to interpolate
+reference Z and 3D arc length. Chords with XY length at most `1e-9 m`
+contribute their 3D length but provide no XY projection. Endpoint
+projections are eligible. Equivalent endpoint hits at the seam have one
+cyclic position. Equal XY progress with different 3D chainage on a
+vertical-only edge is reported as ambiguous when both candidates survive.
+
+The ordering checks use horizontal progress to keep elevation out of the
+match. First estimate each driver's phase from the circular offsets of
+unambiguous nearest XY anchors within **25 m** of the reference. Take the
+median within the largest circular consensus neighborhood. It must hold a
+strict majority of anchors within **30 m**, capped at one quarter period.
+Add the estimated phase to each sample's native horizontal arc and lift
+wrapped candidates to the nearest winding. Candidates must be within
+**1 m** of the nearest XY distance and **25 m** of the reference. They must
+also be within **150 m** of phase-predicted progress, capped at **49%** of the
+horizontal period. Compared with the last accepted observation, reject
+candidate backsteps greater than **10 m** and step discrepancies from
+native horizontal advance greater than **30 m**.
+
+Remaining near ties separated by more than **30 m** in circular horizontal
+arc are reported as ambiguous. Small accepted backsteps retain a flag.
+Ordering is a local check after phase recovery. Close branches below the
+separation threshold, sparse chords, and a failed phase consensus can
+limit identification. Ambiguity counts describe rows evaluated with
+supported phase and order. The output keeps all observations, explicitly
+marks unavailable correspondence, and gives unsupported or ambiguous
+rows zero candidate weight. For accepted matches, `reference_arc_3d_m`
+and `periodic_u` are wrapped, with `u = s / L` in `[0, 1)`.
+`unwrapped_arc_3d_m` and `unwrapped_u` retain the winding. Signed vertical
+residual is observed Z minus reference Z.
+
+### Weight candidates and cached results
+
+Each candidate has unit total mass over matched observations. Uniform
+weights give each observation (1/N). Per-driver normalization gives
+each represented driver equal total mass and divides it by that driver's
+matched sample count. For pooled spatial support, sort the wrapped arcs,
+cut after the largest cyclic gap, and group consecutive positions no
+more than **0.25 m** from the first position in each group. Use the mean
+arc as the site. Its periodic Voronoi support in metres is half the sum
+of the preceding and following site gaps. Cap support at **three times
+the median site support** before sharing it evenly across the site's rows
+and normalizing. Nearby repeated observations share one site's support,
+and the cap limits the influence of sparse sites. The CSV includes both
+uncapped and capped support in metres. None of the candidates uses
+position-derived speed or the held-out drivers. They balance observations
+for fitting and carry no inferred measurement variance.
+
+| Driver | Matched | Maximum circular gap | 3D residual p95 | Uniform / per-driver / density mass |
+| --- | ---: | ---: | ---: | --- |
+| VER | 422/422 | 68.788 m | 0.000 m (self-reference) | 32.61% / 33.33% / 31.49% |
+| LEC | 443/443 | 80.622 m | 0.481 m | 34.23% / 33.33% / 34.94% |
+| HAM | 429/429 | 84.353 m | 0.549 m | 33.15% / 33.33% / 33.57% |
+
+The cached run found zero ambiguous or unsupported observations and zero
+progress discontinuities. HAM's final observation projects inside the
+closing chord. The combined maximum gap was **29.829 m** at reference arc
+**953.949–983.778 m**, down **56.6%** from VER alone. Pooled density was
+**186.0 observations/km**, compared with **60.7/km** for VER. The density
+cap was **15.511 m** per site and the density candidate's effective
+sample size was **990.1**, compared with **1,294.0** for uniform weights.
+Within 25 m of the earlier **2,182.05 m** location there were 3 VER,
+2 LEC, and 2 HAM matches. Their median 3D residuals were 0.000, 0.036,
+and 0.066 m respectively. The inherited temporal flags in that region
+describe a separate measurement issue. These results quantify coverage
+and agreement with VER's provisional geometry. Absolute circuit
+accuracy requires independent evidence.
+
+For Task 5, initialize a periodic cubic B-spline using the matched XYZ
+observations and their wrapped 3D-arc parameters. Compare uniform,
+equal-driver, and capped support weights
+under the same knot spacing and periodic constraints. Use a robust
+residual loss and a periodic second-derivative penalty, then reproject
+under the same order and seam checks. Choose regularization using only
+the reconstruction split, and evaluate the frozen fit on NOR, PIA, and
+RUS. Inspect seam and largest-gap behavior separately from aggregate error.
+
 ## Plots
 
 | File in `outputs/` | What it shows |
