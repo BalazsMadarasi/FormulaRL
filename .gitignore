@@ -3,6 +3,10 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+# FormulaRL data and diagnostic plots
+/cache/
+/outputs/
+
 # C extensions
 *.so
 

@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "formula-rl"
+version = "0.1.0"
+description = "Raw Formula 1 position telemetry diagnostics"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["fastf1>=3.9,<4", "numpy", "pandas", "matplotlib"]
+
+[project.optional-dependencies]
+dev = ["ruff"]
+
+[tool.setuptools]
+packages = []
+
+[tool.ruff.lint]
+extend-select = ["I"]
